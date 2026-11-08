@@ -29,6 +29,9 @@ const EVENTS = {
   ReviewCompleted: ["⭐", "Nueva reseña"],
   WarrantyClaimIssued: ["🛠️", "Reclamo de garantía"],
   BoostingRequestCreated: ["🚀", "Nueva solicitud de boosting"],
+  BoostingOfferCreated: ["🚀", "Nueva oferta de boosting"],
+  PrePurchaseChatsEnabled: ["💬", "Chats antes de la compra activados"],
+  PrePurchaseChatsDisabled: ["💬", "Chats antes de la compra desactivados"],
   UserSuspended: ["🚫", "Tu cuenta fue suspendida"],
 };
 
@@ -43,7 +46,9 @@ async function getToken() {
 }
 
 async function getNotifications(token) {
-  const r = await fetch(`${BASE}/api/notifications/me?pageSize=30`, {
+  // Sin notificationReadStatuses explícito la API devuelve la lista vacía.
+  const q = "notificationReadStatuses=IsUnread&notificationReadStatuses=IsRead&pageSize=30";
+  const r = await fetch(`${BASE}/api/notifications/me?${q}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!r.ok) throw new Error(`Notificaciones falló: HTTP ${r.status}`);
@@ -67,7 +72,11 @@ function toMessage(item) {
     if (d.gameCategoryTitle) lines.push(`🎮 ${d.gameCategoryTitle}`);
     const price = formatMoney(d.price);
     if (price) lines.push(`💵 ${price}`);
-    if (d.buyerUsername) lines.push(`👤 Comprador: ${d.buyerUsername}`);
+    if (n.recipientRole === "Buyer") {
+      if (d.sellerUsername) lines.push(`👤 Vendedor: ${d.sellerUsername}`);
+    } else if (d.buyerUsername) {
+      lines.push(`👤 Comprador: ${d.buyerUsername}`);
+    }
     return lines.join("\n");
   }
   const src = c || n?.customNotificationData || {};
@@ -94,7 +103,13 @@ const seen = new Set(state.seen);
 
 const token = await getToken();
 const items = await getNotifications(token);
-const fresh = items.filter((i) => idOf(i) && !seen.has(idOf(i))).reverse(); // más antiguas primero
+// Solo avisa de notificaciones posteriores a "since", para no reenviar el historial viejo.
+const since = state.since || new Date(Date.now() - 60 * 60 * 1000).toISOString();
+const dateOf = (item) => item.notification?.notificationDate || item.customNotification?.notificationDate || "";
+const fresh = items
+  .filter((i) => idOf(i) && !seen.has(idOf(i)) && new Date(dateOf(i)) >= new Date(since))
+  .reverse(); // más antiguas primero
+const old = items.filter((i) => idOf(i) && !fresh.includes(i));
 
 if (firstRun) {
   await sendDiscord("✅ **Monitor de Eldorado activado.** Desde ahora te aviso de ventas, mensajes y más.");
@@ -102,8 +117,8 @@ if (firstRun) {
   for (const item of fresh) await sendDiscord(toMessage(item));
 }
 
-for (const item of fresh) seen.add(idOf(item));
+for (const item of [...old, ...fresh]) seen.add(idOf(item));
 // lastRunDay cambia una vez al día: mantiene el repo activo (GitHub pausa los cron tras 60 días sin commits).
 const lastRunDay = new Date().toISOString().slice(0, 10);
-writeFileSync(STATE_FILE, JSON.stringify({ lastRunDay, seen: [...seen].slice(-300) }, null, 2) + "\n");
+writeFileSync(STATE_FILE, JSON.stringify({ lastRunDay, since, seen: [...seen].slice(-300) }, null, 2) + "\n");
 console.log(`Revisadas ${items.length} notificaciones, ${firstRun ? 0 : fresh.length} enviadas.`);
