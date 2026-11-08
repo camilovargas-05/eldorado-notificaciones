@@ -103,5 +103,7 @@ if (firstRun) {
 }
 
 for (const item of fresh) seen.add(idOf(item));
-writeFileSync(STATE_FILE, JSON.stringify({ seen: [...seen].slice(-300) }, null, 2) + "\n");
+// lastRunDay cambia una vez al día: mantiene el repo activo (GitHub pausa los cron tras 60 días sin commits).
+const lastRunDay = new Date().toISOString().slice(0, 10);
+writeFileSync(STATE_FILE, JSON.stringify({ lastRunDay, seen: [...seen].slice(-300) }, null, 2) + "\n");
 console.log(`Revisadas ${items.length} notificaciones, ${firstRun ? 0 : fresh.length} enviadas.`);
