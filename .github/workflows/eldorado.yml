@@ -1,8 +1,6 @@
 name: Notificaciones Eldorado
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
